@@ -196,13 +196,15 @@ function handleConfig(argv) {
 
 // ─── setup ───────────────────────────────────────────────────────────────────
 
-async function buildSetupReport({ endpoint, model }) {
+async function buildSetupReport({ endpoint, model, apiKey = null }) {
   const nodeStatus = binaryAvailable("node", ["--version"]);
   const rgStatus = binaryAvailable("rg", ["--version"]);
   const endpointStatus = await getEndpointAvailability(endpoint);
   const modelStatus = endpointStatus.available
     ? await getModelAvailable(endpoint, model)
     : { available: false, loaded: false, detail: "endpoint unreachable" };
+  const modelsList = endpointStatus.available ? await listAvailableModels(endpoint, apiKey) : { ok: false, models: [], detail: "endpoint unreachable" };
+  const availableModels = modelsList.models;
 
   const nextSteps = [];
   if (!endpointStatus.available) {
@@ -210,8 +212,11 @@ async function buildSetupReport({ endpoint, model }) {
       `Start an OpenAI-compatible server at ${endpoint} (e.g. \`ollama serve\` or \`llama-server --port 8080 --host 0.0.0.0 -cb\`).`
     );
   }
-  if (endpointStatus.available && !model) {
-    nextSteps.push("Pass a model id via --model or set APPRENTICE_MODEL (e.g. gemma4:26b, qwen2.5-coder:14b).");
+  if (endpointStatus.available && !model && availableModels.length === 0) {
+    nextSteps.push("No models are loaded at this endpoint. Pull one: `ollama pull gemma4:26b` (or any supported model).");
+  }
+  if (endpointStatus.available && !model && availableModels.length > 0) {
+    nextSteps.push("No default model set. Run `/apprentice:config set model <name>` to save one, or pass `--model` per call.");
   }
   if (endpointStatus.available && model && !modelStatus.loaded) {
     nextSteps.push(`Pull or load the model: \`ollama pull ${model}\` (or equivalent for your backend).`);
@@ -221,27 +226,29 @@ async function buildSetupReport({ endpoint, model }) {
   }
 
   return {
-    ready: endpointStatus.available && rgStatus.available && (!model || modelStatus.loaded),
+    ready: endpointStatus.available && rgStatus.available && model && modelStatus.loaded,
     endpoint,
     model,
     node: nodeStatus,
     ripgrep: rgStatus,
     endpointStatus,
     modelStatus,
+    availableModels,
     nextSteps
   };
 }
 
 async function handleSetup(argv) {
   const { options } = parseCommandInput(argv, {
-    valueOptions: ["cwd", "endpoint", "model"],
+    valueOptions: ["cwd", "endpoint", "model", "api-key"],
     booleanOptions: ["json"]
   });
 
   const cwd = resolveCommandCwd(options);
   const endpoint = resolveEndpoint(options, cwd);
   const model = resolveModel(options, cwd);
-  const report = await buildSetupReport({ endpoint, model });
+  const apiKey = options["api-key"] || process.env.OPENAI_API_KEY || null;
+  const report = await buildSetupReport({ endpoint, model, apiKey });
   outputResult(options.json ? report : renderSetupReport(report), options.json);
 }
 

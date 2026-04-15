@@ -26,6 +26,14 @@ export function renderSetupReport(report) {
     lines.push("- **Model:** none configured");
   }
 
+  if (Array.isArray(report.availableModels) && report.availableModels.length > 0) {
+    lines.push("");
+    lines.push("**Models available at endpoint:**");
+    for (const id of report.availableModels) {
+      lines.push(`- ${id}`);
+    }
+  }
+
   lines.push("");
   lines.push(report.ready ? "Apprentice is ready." : "Apprentice is **not ready**. See details above.");
 
