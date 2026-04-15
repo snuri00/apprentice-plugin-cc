@@ -23,7 +23,7 @@ import {
   renderStoredJobResult,
   renderTaskResult
 } from "./lib/render.mjs";
-import { generateJobId, upsertJob, writeJobFile } from "./lib/state.mjs";
+import { generateJobId, getConfig, setConfig, upsertJob, writeJobFile } from "./lib/state.mjs";
 import {
   appendLogLine,
   createJobLogFile,
@@ -50,9 +50,13 @@ function printUsage() {
       "Usage:",
       "  node scripts/apprentice.mjs setup [--endpoint <url>] [--model <name>] [--json]",
       "  node scripts/apprentice.mjs task [--background] [--model <name>] [--endpoint <url>] [--api-key <key>] [--max-steps <n>] [prompt]",
+      "  node scripts/apprentice.mjs config <get|set|unset> [key] [value] [--json]",
       "  node scripts/apprentice.mjs status [job-id] [--all] [--json]",
       "  node scripts/apprentice.mjs result [job-id] [--json]",
       "  node scripts/apprentice.mjs cancel [job-id] [--json]",
+      "",
+      "Config keys (per-workspace): model, endpoint",
+      "Resolution order for task: --flag > env var > workspace config > default/auto-detect.",
       "",
       "Environment:",
       "  APPRENTICE_ENDPOINT   Default OpenAI-compatible endpoint (falls back to http://localhost:11434/v1)",
@@ -112,6 +116,83 @@ function firstMeaningfulLine(text, fallback) {
   return line ?? fallback;
 }
 
+// ─── config resolution ──────────────────────────────────────────────────────
+
+const ALLOWED_CONFIG_KEYS = ["model", "endpoint"];
+
+function resolveModel(options, cwd) {
+  return (
+    options.model ||
+    process.env.APPRENTICE_MODEL ||
+    getConfig(cwd).model ||
+    null
+  );
+}
+
+function resolveEndpoint(options, cwd) {
+  return (
+    options.endpoint ||
+    process.env.APPRENTICE_ENDPOINT ||
+    getConfig(cwd).endpoint ||
+    DEFAULT_ENDPOINT
+  );
+}
+
+function renderConfig(config) {
+  const keys = ALLOWED_CONFIG_KEYS;
+  const lines = ["# Apprentice Config\n"];
+  for (const key of keys) {
+    const value = config[key];
+    lines.push(`- **${key}:** ${value ? value : "(unset)"}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+function handleConfig(argv) {
+  const { options, positionals } = parseCommandInput(argv, {
+    valueOptions: ["cwd"],
+    booleanOptions: ["json"]
+  });
+
+  const cwd = resolveCommandCwd(options);
+  const [action, key, ...valueParts] = positionals;
+  const value = valueParts.join(" ");
+
+  if (!action || action === "get") {
+    const config = getConfig(cwd);
+    if (key) {
+      const payload = { [key]: config[key] ?? null };
+      outputResult(options.json ? payload : `${key} = ${config[key] ?? "(unset)"}\n`, options.json);
+      return;
+    }
+    outputResult(options.json ? config : renderConfig(config), options.json);
+    return;
+  }
+
+  if (action === "set") {
+    if (!key) throw new Error("Usage: config set <key> <value>");
+    if (!ALLOWED_CONFIG_KEYS.includes(key)) {
+      throw new Error(`Unknown config key "${key}". Allowed: ${ALLOWED_CONFIG_KEYS.join(", ")}`);
+    }
+    if (!value) throw new Error(`Missing value for config set ${key}. Pass a non-empty string.`);
+    setConfig(cwd, key, value);
+    outputResult(options.json ? { [key]: value } : `Set ${key} = ${value}\n`, options.json);
+    return;
+  }
+
+  if (action === "unset") {
+    if (!key) throw new Error("Usage: config unset <key>");
+    if (!ALLOWED_CONFIG_KEYS.includes(key)) {
+      throw new Error(`Unknown config key "${key}". Allowed: ${ALLOWED_CONFIG_KEYS.join(", ")}`);
+    }
+    setConfig(cwd, key, null);
+    outputResult(options.json ? { [key]: null } : `Unset ${key}\n`, options.json);
+    return;
+  }
+
+  throw new Error(`Unknown config action "${action}". Use get, set, or unset.`);
+}
+
 // ─── setup ───────────────────────────────────────────────────────────────────
 
 async function buildSetupReport({ endpoint, model }) {
@@ -156,8 +237,9 @@ async function handleSetup(argv) {
     booleanOptions: ["json"]
   });
 
-  const endpoint = options.endpoint || DEFAULT_ENDPOINT;
-  const model = options.model || process.env.APPRENTICE_MODEL || null;
+  const cwd = resolveCommandCwd(options);
+  const endpoint = resolveEndpoint(options, cwd);
+  const model = resolveModel(options, cwd);
   const report = await buildSetupReport({ endpoint, model });
   outputResult(options.json ? report : renderSetupReport(report), options.json);
 }
@@ -242,8 +324,8 @@ async function handleTask(argv) {
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
-  const model = options.model || process.env.APPRENTICE_MODEL || null;
-  const endpoint = options.endpoint || DEFAULT_ENDPOINT;
+  const model = resolveModel(options, cwd);
+  const endpoint = resolveEndpoint(options, cwd);
   const apiKey = options["api-key"] || process.env.OPENAI_API_KEY || null;
   const maxSteps = options["max-steps"] ? Number(options["max-steps"]) : null;
 
@@ -263,7 +345,10 @@ async function handleTask(argv) {
     throw new Error("Provide a prompt, --prompt-file, or piped stdin.");
   }
   if (!model) {
-    throw new Error("No model specified. Pass --model <name> or set APPRENTICE_MODEL.");
+    throw new Error(
+      "No model configured. Pass --model <name>, set APPRENTICE_MODEL, or run:\n" +
+      "  /apprentice:config set model <name>"
+    );
   }
 
   const title = "Apprentice Task";
@@ -454,6 +539,9 @@ async function main() {
   switch (subcommand) {
     case "setup":
       await handleSetup(argv);
+      break;
+    case "config":
+      handleConfig(argv);
       break;
     case "task":
       await handleTask(argv);
