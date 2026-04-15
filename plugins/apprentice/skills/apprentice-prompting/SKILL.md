@@ -6,7 +6,7 @@ user-invocable: false
 
 # Apprentice Prompting
 
-Use this skill when `apprentice:apprentice` needs to shape a prompt for the local model before forwarding.
+Use this skill when `apprentice:coder` needs to shape a prompt for the local model before forwarding.
 
 The apprentice is an agentic coder running locally. It uses tools (Read, Write, Edit, Glob, Grep) to explore and modify code within the workspace. It cannot run shell commands — that stays with Claude. Prompt it like an operator giving a clear task brief to a junior developer.
 

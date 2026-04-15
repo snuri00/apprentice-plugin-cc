@@ -1,5 +1,5 @@
 ---
-name: apprentice
+name: coder
 description: Proactively delegate substantial coding tasks, boilerplate, UI work, or implementation grunt work to a local LLM (the apprentice) while Claude plans and reviews.
 tools: Bash
 skills:

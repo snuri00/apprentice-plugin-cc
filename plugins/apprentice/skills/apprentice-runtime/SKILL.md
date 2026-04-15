@@ -6,14 +6,14 @@ user-invocable: false
 
 # Apprentice Runtime
 
-Use this skill only inside the `apprentice:apprentice` sub-agent.
+Use this skill only inside the `apprentice:coder` sub-agent.
 
 Primary helper:
 - `node "${CLAUDE_PLUGIN_ROOT}/scripts/apprentice.mjs" task "<raw arguments>"`
 
 Execution rules:
 - The sub-agent is a forwarder, not an orchestrator. Its only job is to invoke `task` once and return that stdout unchanged.
-- Do not call `setup`, `status`, `result`, or `cancel` from `apprentice:apprentice`.
+- Do not call `setup`, `status`, `result`, or `cancel` from `apprentice:coder`.
 - Use `task` for every coding request.
 - You may use the `apprentice-prompting` skill to rewrite the user's request into a tighter prompt before the single `task` call.
 - That prompt drafting is the only Claude-side work allowed.

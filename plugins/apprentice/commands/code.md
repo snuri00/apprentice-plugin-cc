@@ -5,7 +5,7 @@ context: fork
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
-Route this request to the `apprentice:apprentice` subagent.
+Route this request to the `apprentice:coder` subagent.
 The final user-visible response must be the apprentice's output verbatim.
 
 Raw user request:
@@ -13,7 +13,7 @@ $ARGUMENTS
 
 Execution mode:
 
-- If the request includes `--background`, run the `apprentice:apprentice` subagent in the background.
+- If the request includes `--background`, run the `apprentice:coder` subagent in the background.
 - Otherwise run in the foreground (default).
 - `--background` is an execution flag for Claude Code. Do not forward it to `task`, and do not treat it as part of the task text.
 - `--model`, `--endpoint`, `--api-key`, `--max-steps` are runtime flags. Preserve them for the forwarded `task` call.
