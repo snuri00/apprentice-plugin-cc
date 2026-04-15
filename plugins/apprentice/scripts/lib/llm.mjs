@@ -176,7 +176,27 @@ function createDeltaAccumulator() {
           name: tc.name ?? "unknown",
           arguments: tc.arguments || "{}"
         }));
-      return { role, content, reasoning, toolCalls };
+
+      // Some models (Gemma 4 with thinking mode, DeepSeek-R1, QwQ, certain
+      // llama.cpp builds) emit chain-of-thought as <think>...</think> blocks
+      // inside the assistant content stream instead of the reasoning_content
+      // field. Extract those so the final "content" is just the user-facing
+      // response.
+      let cleanedContent = content;
+      let extractedReasoning = reasoning;
+      const thinkRegex = /<think>([\s\S]*?)<\/think>\s*/g;
+      const matches = [...content.matchAll(thinkRegex)];
+      if (matches.length > 0) {
+        for (const match of matches) {
+          const block = match[1].trim();
+          if (block) {
+            extractedReasoning += (extractedReasoning ? "\n" : "") + block;
+          }
+        }
+        cleanedContent = content.replace(thinkRegex, "").trim();
+      }
+
+      return { role, content: cleanedContent, reasoning: extractedReasoning, toolCalls };
     }
   };
 }
