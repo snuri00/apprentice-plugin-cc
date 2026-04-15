@@ -1,0 +1,8 @@
+{
+  "name": "apprentice",
+  "version": "0.1.0",
+  "description": "Delegates file editing to a local LLM (Ollama, llama.cpp, LM Studio, vLLM — any OpenAI-compatible endpoint) while Claude orchestrates and reviews.",
+  "author": {
+    "name": "custom"
+  }
+}

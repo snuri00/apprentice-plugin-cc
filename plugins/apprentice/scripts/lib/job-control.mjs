@@ -35,7 +35,7 @@ function stripLogPrefix(line) {
 }
 
 function isProgressBlockTitle(line) {
-  return ["Final output", "Kimi response", "Reasoning summary"].includes(line);
+  return ["Final output", "Apprentice response", "Reasoning summary"].includes(line);
 }
 
 export function readJobProgressPreview(logFile, maxLines = DEFAULT_MAX_PROGRESS_LINES) {
@@ -155,7 +155,7 @@ function matchJobReference(jobs, reference, predicate = () => true) {
     throw new Error(`Job reference "${reference}" is ambiguous. Use a longer job id.`);
   }
 
-  throw new Error(`No job found for "${reference}". Run /kimi:status to list known jobs.`);
+  throw new Error(`No job found for "${reference}". Run /apprentice:status to list known jobs.`);
 }
 
 export function buildStatusSnapshot(cwd, options = {}) {
@@ -188,7 +188,7 @@ export function buildSingleJobSnapshot(cwd, reference, options = {}) {
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
   const selected = matchJobReference(jobs, reference);
   if (!selected) {
-    throw new Error(`No job found for "${reference}". Run /kimi:status to inspect known jobs.`);
+    throw new Error(`No job found for "${reference}". Run /apprentice:status to inspect known jobs.`);
   }
 
   return {
@@ -212,14 +212,14 @@ export function resolveResultJob(cwd, reference) {
 
   const active = matchJobReference(jobs, reference, (job) => job.status === "queued" || job.status === "running");
   if (active) {
-    throw new Error(`Job ${active.id} is still ${active.status}. Check /kimi:status and try again once it finishes.`);
+    throw new Error(`Job ${active.id} is still ${active.status}. Check /apprentice:status and try again once it finishes.`);
   }
 
   if (reference) {
-    throw new Error(`No finished job found for "${reference}". Run /kimi:status to inspect active jobs.`);
+    throw new Error(`No finished job found for "${reference}". Run /apprentice:status to inspect active jobs.`);
   }
 
-  throw new Error("No finished Kimi jobs found for this workspace yet.");
+  throw new Error("No finished apprentice jobs found for this workspace yet.");
 }
 
 export function resolveCancelableJob(cwd, reference) {
@@ -239,8 +239,8 @@ export function resolveCancelableJob(cwd, reference) {
     return { workspaceRoot, job: activeJobs[0] };
   }
   if (activeJobs.length > 1) {
-    throw new Error("Multiple Kimi jobs are active. Pass a job id to /kimi:cancel.");
+    throw new Error("Multiple apprentice jobs are active. Pass a job id to /apprentice:cancel.");
   }
 
-  throw new Error("No active Kimi jobs to cancel.");
+  throw new Error("No active apprentice jobs to cancel.");
 }

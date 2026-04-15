@@ -8,7 +8,12 @@ import { fileURLToPath } from "node:url";
 
 import { parseArgs, splitRawArgumentString } from "./lib/args.mjs";
 import { readStdinIfPiped } from "./lib/fs.mjs";
-import { getKimiAvailability, getKimiLoginStatus, runKimiTask } from "./lib/kimi.mjs";
+import {
+  DEFAULT_ENDPOINT,
+  getEndpointAvailability,
+  getModelAvailable,
+  runApprenticeTask
+} from "./lib/llm.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import {
   renderCancelReport,
@@ -18,13 +23,7 @@ import {
   renderStoredJobResult,
   renderTaskResult
 } from "./lib/render.mjs";
-import {
-  generateJobId,
-  listJobs,
-  resolveJobFile,
-  upsertJob,
-  writeJobFile
-} from "./lib/state.mjs";
+import { generateJobId, upsertJob, writeJobFile } from "./lib/state.mjs";
 import {
   appendLogLine,
   createJobLogFile,
@@ -37,11 +36,9 @@ import {
 import {
   buildSingleJobSnapshot,
   buildStatusSnapshot,
-  enrichJob,
   readStoredJob,
   resolveCancelableJob,
-  resolveResultJob,
-  sortJobsNewestFirst
+  resolveResultJob
 } from "./lib/job-control.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 
@@ -51,11 +48,16 @@ function printUsage() {
   console.log(
     [
       "Usage:",
-      "  node scripts/kimi-companion.mjs setup [--json]",
-      "  node scripts/kimi-companion.mjs task [--background] [--continue] [--session <id>] [--model <model>] [--thinking|--no-thinking] [--max-steps <n>] [prompt]",
-      "  node scripts/kimi-companion.mjs status [job-id] [--all] [--json]",
-      "  node scripts/kimi-companion.mjs result [job-id] [--json]",
-      "  node scripts/kimi-companion.mjs cancel [job-id] [--json]"
+      "  node scripts/apprentice.mjs setup [--endpoint <url>] [--model <name>] [--json]",
+      "  node scripts/apprentice.mjs task [--background] [--model <name>] [--endpoint <url>] [--api-key <key>] [--max-steps <n>] [prompt]",
+      "  node scripts/apprentice.mjs status [job-id] [--all] [--json]",
+      "  node scripts/apprentice.mjs result [job-id] [--json]",
+      "  node scripts/apprentice.mjs cancel [job-id] [--json]",
+      "",
+      "Environment:",
+      "  APPRENTICE_ENDPOINT   Default OpenAI-compatible endpoint (falls back to http://localhost:11434/v1)",
+      "  APPRENTICE_MODEL      Default model id (e.g. gemma4:26b, qwen2.5-coder:14b)",
+      "  OPENAI_API_KEY        Optional API key (for proxies / vLLM / LiteLLM)"
     ].join("\n")
   );
 }
@@ -112,36 +114,51 @@ function firstMeaningfulLine(text, fallback) {
 
 // ─── setup ───────────────────────────────────────────────────────────────────
 
-function buildSetupReport(cwd) {
-  const nodeStatus = binaryAvailable("node", ["--version"], { cwd });
-  const kimiStatus = getKimiAvailability(cwd);
-  const authStatus = getKimiLoginStatus(cwd);
+async function buildSetupReport({ endpoint, model }) {
+  const nodeStatus = binaryAvailable("node", ["--version"]);
+  const rgStatus = binaryAvailable("rg", ["--version"]);
+  const endpointStatus = await getEndpointAvailability(endpoint);
+  const modelStatus = endpointStatus.available
+    ? await getModelAvailable(endpoint, model)
+    : { available: false, loaded: false, detail: "endpoint unreachable" };
 
   const nextSteps = [];
-  if (!kimiStatus.available) {
-    nextSteps.push("Install Kimi CLI: `curl -L code.kimi.com/install.sh | sh`");
+  if (!endpointStatus.available) {
+    nextSteps.push(
+      `Start an OpenAI-compatible server at ${endpoint} (e.g. \`ollama serve\` or \`llama-server --port 8080 --host 0.0.0.0 -cb\`).`
+    );
   }
-  if (kimiStatus.available && !authStatus.loggedIn) {
-    nextSteps.push("Run `!kimi login` to authenticate.");
+  if (endpointStatus.available && !model) {
+    nextSteps.push("Pass a model id via --model or set APPRENTICE_MODEL (e.g. gemma4:26b, qwen2.5-coder:14b).");
+  }
+  if (endpointStatus.available && model && !modelStatus.loaded) {
+    nextSteps.push(`Pull or load the model: \`ollama pull ${model}\` (or equivalent for your backend).`);
+  }
+  if (!rgStatus.available) {
+    nextSteps.push("Install ripgrep (`rg`) — required for Glob/Grep tools.");
   }
 
   return {
-    ready: nodeStatus.available && kimiStatus.available && authStatus.loggedIn,
+    ready: endpointStatus.available && rgStatus.available && (!model || modelStatus.loaded),
+    endpoint,
+    model,
     node: nodeStatus,
-    kimi: kimiStatus,
-    auth: authStatus,
+    ripgrep: rgStatus,
+    endpointStatus,
+    modelStatus,
     nextSteps
   };
 }
 
-function handleSetup(argv) {
+async function handleSetup(argv) {
   const { options } = parseCommandInput(argv, {
-    valueOptions: ["cwd"],
+    valueOptions: ["cwd", "endpoint", "model"],
     booleanOptions: ["json"]
   });
 
-  const cwd = resolveCommandCwd(options);
-  const report = buildSetupReport(cwd);
+  const endpoint = options.endpoint || DEFAULT_ENDPOINT;
+  const model = options.model || process.env.APPRENTICE_MODEL || null;
+  const report = await buildSetupReport({ endpoint, model });
   outputResult(options.json ? report : renderSetupReport(report), options.json);
 }
 
@@ -149,7 +166,7 @@ function handleSetup(argv) {
 
 function buildTaskJob(workspaceRoot, title, summary) {
   return createJobRecord({
-    id: generateJobId("kimi-task"),
+    id: generateJobId("apprentice"),
     kind: "task",
     kindLabel: "code",
     title,
@@ -160,27 +177,25 @@ function buildTaskJob(workspaceRoot, title, summary) {
 }
 
 async function executeTaskRun(request) {
-  const result = await runKimiTask({
+  const result = await runApprenticeTask({
     cwd: request.cwd,
     prompt: request.prompt,
-    workDir: request.cwd,
-    session: request.session,
-    continueSession: request.continueSession,
+    endpoint: request.endpoint,
+    apiKey: request.apiKey,
     model: request.model,
-    thinking: request.thinking,
     maxSteps: request.maxSteps,
-    onProgress: request.onProgress,
-    onPid: request.onPid
+    systemPrompt: request.systemPrompt,
+    onProgress: request.onProgress
   });
 
   const rendered = renderTaskResult(result, {
-    title: request.title ?? "Kimi Task",
+    title: request.title ?? "Apprentice Task",
     jobId: request.jobId ?? null
   });
 
   return {
     exitStatus: result.status,
-    kimiSessionId: null,
+    sessionId: null,
     payload: {
       status: result.status,
       finalMessage: result.finalMessage,
@@ -191,14 +206,14 @@ async function executeTaskRun(request) {
       errors: result.errors
     },
     rendered,
-    summary: firstMeaningfulLine(result.finalMessage, "Kimi task finished."),
-    jobTitle: request.title ?? "Kimi Task",
+    summary: firstMeaningfulLine(result.finalMessage, "Apprentice task finished."),
+    jobTitle: request.title ?? "Apprentice Task",
     jobClass: "task"
   };
 }
 
 function spawnDetachedTaskWorker(cwd, jobId) {
-  const scriptPath = path.join(ROOT_DIR, "scripts", "kimi-companion.mjs");
+  const scriptPath = path.join(ROOT_DIR, "scripts", "apprentice.mjs");
   const child = spawn(process.execPath, [scriptPath, "task-worker", "--cwd", cwd, "--job-id", jobId], {
     cwd,
     env: process.env,
@@ -212,27 +227,31 @@ function spawnDetachedTaskWorker(cwd, jobId) {
 
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["model", "session", "max-steps", "cwd", "prompt-file"],
-    booleanOptions: ["json", "continue", "thinking", "no-thinking", "background"],
-    aliasMap: {
-      m: "model",
-      S: "session",
-      C_session: "continue"
-    }
+    valueOptions: [
+      "model",
+      "endpoint",
+      "api-key",
+      "max-steps",
+      "cwd",
+      "prompt-file",
+      "system-prompt-file"
+    ],
+    booleanOptions: ["json", "background"],
+    aliasMap: { m: "model" }
   });
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
-  const model = options.model || null;
-  const session = options.session || null;
-  const continueSession = Boolean(options["continue"]);
+  const model = options.model || process.env.APPRENTICE_MODEL || null;
+  const endpoint = options.endpoint || DEFAULT_ENDPOINT;
+  const apiKey = options["api-key"] || process.env.OPENAI_API_KEY || null;
   const maxSteps = options["max-steps"] ? Number(options["max-steps"]) : null;
 
-  let thinking = undefined;
-  if (options.thinking) thinking = true;
-  if (options["no-thinking"]) thinking = false;
+  let systemPrompt = null;
+  if (options["system-prompt-file"]) {
+    systemPrompt = fs.readFileSync(path.resolve(cwd, options["system-prompt-file"]), "utf8");
+  }
 
-  // Read prompt
   let prompt;
   if (options["prompt-file"]) {
     prompt = fs.readFileSync(path.resolve(cwd, options["prompt-file"]), "utf8");
@@ -240,12 +259,15 @@ async function handleTask(argv) {
     prompt = positionals.join(" ") || readStdinIfPiped();
   }
 
-  if (!prompt && !continueSession && !session) {
-    throw new Error("Provide a prompt, a prompt file, or piped stdin.");
+  if (!prompt) {
+    throw new Error("Provide a prompt, --prompt-file, or piped stdin.");
+  }
+  if (!model) {
+    throw new Error("No model specified. Pass --model <name> or set APPRENTICE_MODEL.");
   }
 
-  const title = continueSession || session ? "Kimi Resume" : "Kimi Task";
-  const summary = shorten(prompt || "continue", 80);
+  const title = "Apprentice Task";
+  const summary = shorten(prompt, 80);
   const job = buildTaskJob(workspaceRoot, title, summary);
 
   if (options.background) {
@@ -259,17 +281,16 @@ async function handleTask(argv) {
       phase: "queued",
       pid: child.pid ?? null,
       logFile,
-      request: { cwd, prompt, model, session, continueSession, thinking, maxSteps, title }
+      request: { cwd, prompt, model, endpoint, apiKey, maxSteps, systemPrompt, title }
     };
     writeJobFile(workspaceRoot, job.id, queuedRecord);
     upsertJob(workspaceRoot, queuedRecord);
 
-    const output = `${title} started in the background as ${job.id}. Check /kimi:status ${job.id} for progress.\n`;
+    const output = `${title} started in the background as ${job.id}. Check /apprentice:status ${job.id} for progress.\n`;
     outputResult(options.json ? { jobId: job.id, status: "queued", title, summary } : output, options.json);
     return;
   }
 
-  // Foreground execution
   const logFile = createJobLogFile(workspaceRoot, job.id, title);
   const progress = createProgressReporter({
     stderr: !options.json,
@@ -284,10 +305,10 @@ async function handleTask(argv) {
         cwd,
         prompt,
         model,
-        session,
-        continueSession,
-        thinking,
+        endpoint,
+        apiKey,
         maxSteps,
+        systemPrompt,
         title,
         jobId: job.id,
         onProgress: progress
@@ -310,7 +331,6 @@ async function handleTaskWorker(argv) {
     throw new Error("Missing required --job-id for task-worker.");
   }
 
-  const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
   const storedJob = readStoredJob(workspaceRoot, options["job-id"]);
   if (!storedJob) {
@@ -433,7 +453,7 @@ async function main() {
 
   switch (subcommand) {
     case "setup":
-      handleSetup(argv);
+      await handleSetup(argv);
       break;
     case "task":
       await handleTask(argv);

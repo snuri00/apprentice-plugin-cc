@@ -1,8 +1,0 @@
-{
-  "name": "kimi-coder",
-  "version": "1.0.0",
-  "description": "Use Kimi Code from Claude Code to delegate coding tasks to a local/cloud Kimi model.",
-  "author": {
-    "name": "custom"
-  }
-}

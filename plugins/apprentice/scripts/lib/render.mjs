@@ -5,31 +5,31 @@ function shorten(text, limit = 96) {
   return `${normalized.slice(0, limit - 3)}...`;
 }
 
-function firstMeaningfulLine(text, fallback) {
-  const line = String(text ?? "")
-    .split(/\r?\n/)
-    .map((v) => v.trim())
-    .find(Boolean);
-  return line ?? fallback;
+function statusLine(status) {
+  return status.available ? `OK (${status.detail})` : `MISSING (${status.detail})`;
 }
 
 export function renderSetupReport(report) {
   const lines = [];
-  lines.push("# Kimi Code Setup\n");
+  lines.push("# Apprentice Setup\n");
 
-  const status = (obj) => (obj.available ? `OK (${obj.detail})` : `MISSING (${obj.detail})`);
-  lines.push(`- **Node:** ${status(report.node)}`);
-  lines.push(`- **Kimi CLI:** ${status(report.kimi)}`);
-  lines.push(`- **Auth:** ${report.auth.loggedIn ? `OK (${report.auth.detail})` : `NOT AUTHENTICATED (${report.auth.detail})`}`);
-  lines.push("");
+  lines.push(`- **Node:** ${statusLine(report.node)}`);
+  lines.push(`- **ripgrep:** ${statusLine(report.ripgrep)}`);
+  lines.push(`- **Endpoint (${report.endpoint}):** ${statusLine(report.endpointStatus)}`);
 
-  if (report.ready) {
-    lines.push("Kimi Code is ready.");
+  if (report.model) {
+    const modelLine = report.modelStatus.loaded
+      ? `OK (${report.modelStatus.detail})`
+      : `NOT LOADED (${report.modelStatus.detail})`;
+    lines.push(`- **Model (${report.model}):** ${modelLine}`);
   } else {
-    lines.push("Kimi Code is **not ready**. See details above.");
+    lines.push("- **Model:** none configured");
   }
 
-  if (report.nextSteps.length > 0) {
+  lines.push("");
+  lines.push(report.ready ? "Apprentice is ready." : "Apprentice is **not ready**. See details above.");
+
+  if (report.nextSteps?.length > 0) {
     lines.push("\n**Next steps:**");
     for (const step of report.nextSteps) {
       lines.push(`- ${step}`);
@@ -41,7 +41,7 @@ export function renderSetupReport(report) {
 
 export function renderTaskResult(result, options = {}) {
   const lines = [];
-  const title = options.title ?? "Kimi Task";
+  const title = options.title ?? "Apprentice Task";
   const jobId = options.jobId ?? null;
 
   lines.push(`# ${title} Result\n`);
@@ -58,7 +58,6 @@ export function renderTaskResult(result, options = {}) {
   }
   lines.push("");
 
-  // Files modified
   if (result.touchedFiles && result.touchedFiles.length > 0) {
     lines.push("## Files Modified\n");
     for (const file of result.touchedFiles) {
@@ -67,7 +66,6 @@ export function renderTaskResult(result, options = {}) {
     lines.push("");
   }
 
-  // Execution steps
   if (result.steps && result.steps.length > 0) {
     lines.push("## Execution Steps\n");
     for (let i = 0; i < result.steps.length; i++) {
@@ -85,7 +83,6 @@ export function renderTaskResult(result, options = {}) {
     lines.push("");
   }
 
-  // Reasoning summary
   if (result.thinkingBlocks && result.thinkingBlocks.length > 0) {
     lines.push("## Reasoning Summary\n");
     const lastThinks = result.thinkingBlocks.slice(-3);
@@ -95,14 +92,12 @@ export function renderTaskResult(result, options = {}) {
     lines.push("");
   }
 
-  // Final response
   if (result.finalMessage) {
-    lines.push("## Kimi's Response\n");
+    lines.push("## Apprentice's Response\n");
     lines.push(result.finalMessage);
     lines.push("");
   }
 
-  // Errors
   if (result.errors && result.errors.length > 0) {
     lines.push("## Errors\n");
     for (const err of result.errors) {
@@ -123,8 +118,7 @@ export function renderTaskResult(result, options = {}) {
 
 function extractToolPreviewForRender(tc) {
   try {
-    const args = JSON.parse(tc.arguments);
-    if (tc.name === "Shell") return shorten(args.command ?? "", 120);
+    const args = typeof tc.arguments === "string" ? JSON.parse(tc.arguments) : tc.arguments ?? {};
     if (tc.name === "Write") return `wrote ${args.file_path ?? ""}`;
     if (tc.name === "Edit") return `edited ${args.file_path ?? ""}`;
     if (tc.name === "Read") return `read ${args.file_path ?? ""}`;
@@ -138,7 +132,7 @@ function extractToolPreviewForRender(tc) {
 
 export function renderStatusReport(report) {
   const lines = [];
-  lines.push("# Kimi Jobs Status\n");
+  lines.push("# Apprentice Jobs Status\n");
 
   if (report.running.length > 0) {
     lines.push("## Active Jobs\n");
@@ -182,7 +176,7 @@ export function renderStatusReport(report) {
   }
 
   if (report.running.length === 0 && !report.latestFinished && report.recent.length === 0) {
-    lines.push("No Kimi jobs found for this workspace.\n");
+    lines.push("No apprentice jobs found for this workspace.\n");
   }
 
   return lines.join("\n");
@@ -204,9 +198,6 @@ export function renderJobStatusReport(job) {
   if (job.summary) {
     lines.push(`- **Summary:** ${job.summary}`);
   }
-  if (job.kimiSessionId) {
-    lines.push(`- **Kimi Session:** ${job.kimiSessionId}`);
-  }
 
   if (job.progressPreview?.length > 0) {
     lines.push("\n**Progress:**");
@@ -216,10 +207,10 @@ export function renderJobStatusReport(job) {
   }
 
   if (job.status === "running") {
-    lines.push(`\nCancel: \`/kimi:cancel ${job.id}\``);
+    lines.push(`\nCancel: \`/apprentice:cancel ${job.id}\``);
   }
   if (job.status === "completed" || job.status === "failed") {
-    lines.push(`\nResult: \`/kimi:result ${job.id}\``);
+    lines.push(`\nResult: \`/apprentice:result ${job.id}\``);
   }
 
   return lines.join("\n") + "\n";
@@ -236,7 +227,7 @@ export function renderStoredJobResult(job, storedJob) {
 
   if (storedJob.result) {
     return renderTaskResult(storedJob.result, {
-      title: storedJob.title ?? "Kimi Task",
+      title: storedJob.title ?? "Apprentice Task",
       jobId: job.id
     });
   }
@@ -250,7 +241,7 @@ export function renderStoredJobResult(job, storedJob) {
 
 export function renderCancelReport(job) {
   const lines = [];
-  lines.push(`Cancelled job **${job.id}** (${job.title ?? "Kimi Task"}).`);
-  lines.push(`\nCheck \`/kimi:status\` for updated queue.`);
+  lines.push(`Cancelled job **${job.id}** (${job.title ?? "Apprentice Task"}).`);
+  lines.push(`\nCheck \`/apprentice:status\` for updated queue.`);
   return lines.join("\n") + "\n";
 }

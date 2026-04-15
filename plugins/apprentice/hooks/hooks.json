@@ -1,5 +1,5 @@
 {
-  "description": "Session lifecycle management for Kimi Companion.",
+  "description": "Session lifecycle management for Apprentice.",
   "hooks": {
     "SessionStart": [
       {

@@ -1,21 +1,21 @@
 {
-  "name": "kimi-coder-plugin-cc",
+  "name": "apprentice-plugin-cc",
   "owner": {
     "name": "snuri00"
   },
   "metadata": {
-    "description": "Kimi Code CLI plugin for Claude Code - use Kimi as a coding sub-agent.",
-    "version": "1.0.0"
+    "description": "Apprentice plugin for Claude Code — delegate file edits to a local LLM (Ollama, llama.cpp, LM Studio, vLLM) while Claude orchestrates.",
+    "version": "0.1.0"
   },
   "plugins": [
     {
-      "name": "kimi-coder",
-      "description": "Use Kimi Code from Claude Code to delegate coding tasks.",
-      "version": "1.0.0",
+      "name": "apprentice",
+      "description": "Delegate coding tasks to a local LLM via any OpenAI-compatible endpoint.",
+      "version": "0.1.0",
       "author": {
         "name": "snuri00"
       },
-      "source": "./plugins/kimi-coder"
+      "source": "./plugins/apprentice"
     }
   ]
 }

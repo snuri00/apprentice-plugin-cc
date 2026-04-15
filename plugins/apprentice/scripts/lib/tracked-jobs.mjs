@@ -3,7 +3,7 @@ import process from "node:process";
 
 import { readJobFile, resolveJobFile, resolveJobLogFile, upsertJob, writeJobFile } from "./state.mjs";
 
-export const SESSION_ID_ENV = "KIMI_COMPANION_SESSION_ID";
+export const SESSION_ID_ENV = "APPRENTICE_SESSION_ID";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -82,7 +82,7 @@ export function createJobProgressUpdater(workspaceRoot, jobId) {
 
     if (normalized.sessionId && normalized.sessionId !== lastSessionId) {
       lastSessionId = normalized.sessionId;
-      patch.kimiSessionId = normalized.sessionId;
+      patch.sessionId = normalized.sessionId;
       changed = true;
     }
 
@@ -114,7 +114,7 @@ export function createProgressReporter({ stderr = false, logFile = null, onEvent
     const event = normalizeProgressEvent(eventOrMessage);
     const stderrMessage = event.stderrMessage ?? event.message;
     if (stderr && stderrMessage) {
-      process.stderr.write(`[kimi] ${stderrMessage}\n`);
+      process.stderr.write(`[apprentice] ${stderrMessage}\n`);
     }
     appendLogLine(logFile, event.message);
     appendLogBlock(logFile, event.logTitle, event.logBody);
@@ -149,7 +149,7 @@ export async function runTrackedJob(job, runner, options = {}) {
     writeJobFile(job.workspaceRoot, job.id, {
       ...runningRecord,
       status: completionStatus,
-      kimiSessionId: execution.kimiSessionId ?? null,
+      sessionId: execution.sessionId ?? null,
       pid: null,
       phase: completionStatus === "completed" ? "done" : "failed",
       completedAt,
@@ -159,7 +159,7 @@ export async function runTrackedJob(job, runner, options = {}) {
     upsertJob(job.workspaceRoot, {
       id: job.id,
       status: completionStatus,
-      kimiSessionId: execution.kimiSessionId ?? null,
+      sessionId: execution.sessionId ?? null,
       summary: execution.summary,
       phase: completionStatus === "completed" ? "done" : "failed",
       pid: null,
