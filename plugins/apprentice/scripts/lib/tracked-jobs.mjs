@@ -144,24 +144,30 @@ export async function runTrackedJob(job, runner, options = {}) {
 
   try {
     const execution = await runner();
-    const completionStatus = execution.exitStatus === 0 ? "completed" : "failed";
     const completedAt = nowIso();
+    const existing = readStoredJobOrNull(job.workspaceRoot, job.id);
+    const wasCancelled = existing?.status === "cancelled";
+    const computedStatus = execution.exitStatus === 0 ? "completed" : "failed";
+    const finalStatus = wasCancelled ? "cancelled" : computedStatus;
+    const finalPhase = finalStatus === "completed" ? "done" : finalStatus;
+
     writeJobFile(job.workspaceRoot, job.id, {
       ...runningRecord,
-      status: completionStatus,
+      ...(wasCancelled ? { errorMessage: existing.errorMessage ?? "Cancelled by user." } : {}),
+      status: finalStatus,
       sessionId: execution.sessionId ?? null,
       pid: null,
-      phase: completionStatus === "completed" ? "done" : "failed",
+      phase: finalPhase,
       completedAt,
       result: execution.payload,
       rendered: execution.rendered
     });
     upsertJob(job.workspaceRoot, {
       id: job.id,
-      status: completionStatus,
+      status: finalStatus,
       sessionId: execution.sessionId ?? null,
       summary: execution.summary,
-      phase: completionStatus === "completed" ? "done" : "failed",
+      phase: finalPhase,
       pid: null,
       completedAt
     });
@@ -170,22 +176,25 @@ export async function runTrackedJob(job, runner, options = {}) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const existing = readStoredJobOrNull(job.workspaceRoot, job.id) ?? runningRecord;
+    const wasCancelled = existing.status === "cancelled";
+    const finalStatus = wasCancelled ? "cancelled" : "failed";
+    const finalMessage = wasCancelled ? existing.errorMessage ?? "Cancelled by user." : errorMessage;
     const completedAt = nowIso();
     writeJobFile(job.workspaceRoot, job.id, {
       ...existing,
-      status: "failed",
-      phase: "failed",
-      errorMessage,
+      status: finalStatus,
+      phase: finalStatus,
+      errorMessage: finalMessage,
       pid: null,
       completedAt,
       logFile: options.logFile ?? job.logFile ?? existing.logFile ?? null
     });
     upsertJob(job.workspaceRoot, {
       id: job.id,
-      status: "failed",
-      phase: "failed",
+      status: finalStatus,
+      phase: finalStatus,
       pid: null,
-      errorMessage,
+      errorMessage: finalMessage,
       completedAt
     });
     throw error;
