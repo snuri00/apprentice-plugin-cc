@@ -104,6 +104,22 @@ These are re-implementations of Claude Code's security patterns — the algorith
 
 Agent loop runs in a Node subprocess spawned by the Bash tool. Job state persists in `$CLAUDE_PLUGIN_DATA` so `/apprentice:status` and `/apprentice:result` keep working across sessions and background tasks.
 
+## Troubleshooting
+
+- **The apprentice doesn't call any tools, only produces text** — The local model likely doesn't support native function-calling / `tool_calls`. Verify with `/apprentice:setup` that a tool-capable model (Gemma 4, Qwen2.5-Coder, DeepSeek-Coder-V2/V3, GLM-4.5+, Llama 3.3+, Phi-4) is loaded. Vanilla Llama 3 base and older Mistral 7B will not work.
+
+- **'Path escapes workspace'** — The apprentice is sandboxed to the current working directory. Use workspace-relative paths, or run `/apprentice:code` from the correct directory.
+
+- **'You must Read <path> before editing it'** — The apprentice must Read a file in the same task before it can Edit it. This is a safety rule to prevent hallucinated edits.
+
+- **'ripgrep (rg) not installed'** — Glob and Grep tools require ripgrep. Install via `sudo apt install ripgrep` (or your distro's package manager).
+
+- **Endpoint reachable but model not loaded** — Pull the model into your local backend: `ollama pull <model>` for Ollama, or load the GGUF for llama.cpp. Re-run `/apprentice:setup` to verify.
+
+- **Inconsistent edits or file damage with small models** — Use a larger model for production tasks. `gemma4:e2b` / `gemma4:e4b` are good for light workloads but may make errors; `gemma4:26b`, `qwen2.5-coder:14b`, or larger are recommended for reliability.
+
+- **'Hit max-steps limit'** — The task exceeded the default 40-step agent loop. Either split the task into smaller pieces or pass `--max-steps 80` (or higher).
+
 ## License
 
 MIT
